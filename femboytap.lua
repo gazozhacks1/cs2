@@ -1073,6 +1073,7 @@ local cmbModelTarget = vAsec:Combo("Apply target", TARGET_OPTS, 1)
 local cmbModelPlayer = vAsec:Combo("Player", { "(refresh in-game)" }, 1)
 local cmbModelPlayerWd = vAsec.ws[#vAsec.ws]
 local cbModelPersist = vAsec:Checkbox("Persist (reapply each round)", C.getModelPersist and C.getModelPersist() or true)
+local cbModelCrashFix = vAsec:Checkbox("Crash-fix mode (safer persist)", C.getModelCrashFix and C.getModelCrashFix() or false)
 local playerListData = {}
 
 local function refreshPlayerCombo()
@@ -1121,6 +1122,7 @@ vAsec:Button("Apply model to target", function()
     if not path then pcall(function() M:Notify("select a model first") end); return end
     local mode = cmbModelTarget:Get() or 1
     pcall(function() C.setModelPersist(cbModelPersist:Get()) end)
+    pcall(function() if C.setModelCrashFix then C.setModelCrashFix(cbModelCrashFix:Get()) end end)
     local n = 0
     pcall(function() n = C.applyModelTarget(mode, selectedPlayerKey(), path) or 0 end)
     pcall(function() M:Notify(string.format("applied to %d player(s)", n)) end)
@@ -1144,6 +1146,14 @@ local function syncModelPersist()
     if on == lastPersist then return end
     lastPersist = on
     pcall(function() C.setModelPersist(on) end)
+end
+
+local lastCrashFix = cbModelCrashFix:Get()
+local function syncModelCrashFix()
+    local on = cbModelCrashFix:Get()
+    if on == lastCrashFix then return end
+    lastCrashFix = on
+    pcall(function() if C.setModelCrashFix then C.setModelCrashFix(on) end end)
 end
 
 local playerRefreshTick = 0
@@ -1647,6 +1657,7 @@ M:OnFrame(function()
     pcall(syncModel)
     pcall(syncModelSearch)
     pcall(syncModelPersist)
+    pcall(syncModelCrashFix)
     pcall(syncPlayerList)
     pcall(syncVm)
     pcall(HS.missTick)
