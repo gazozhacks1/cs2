@@ -95,11 +95,32 @@ local function sig_disp(mod, pattern)
     local a = mem.FindPattern(mod, pattern); if not a or a == 0 then return nil end
     return r_i32(tonumber(a) + 3)
 end
+local FALLBACK_ENTITYLIST = 0x254EE60
+local FALLBACK_LOCALCTRL  = 0x237EBA0
+
 do
     local cb = mem.GetModuleBase("client.dll")
     local eb = mem.GetModuleBase("engine2.dll")
-    off.dwEntityList            = sig_rva(cb, "client.dll",  "48 8B 0D ?? ?? ?? ?? 48 89 7C 24 ?? 8B FA C1 EB", 7)
-    off.dwLocalPlayerController = sig_rva(cb, "client.dll",  "48 8B 05 ?? ?? ?? ?? 41 89 BE", 7)
+
+    local ENTLIST_PATS = {
+        "48 8B 0D ?? ?? ?? ?? 48 89 7C 24 ?? 8B FA C1 EB",
+        "48 89 0D ?? ?? ?? ?? E9 ?? ?? ?? ?? CC",
+    }
+    for _, pat in ipairs(ENTLIST_PATS) do
+        off.dwEntityList = sig_rva(cb, "client.dll", pat, 7)
+        if off.dwEntityList then break end
+    end
+    if not off.dwEntityList then
+        off.dwEntityList = FALLBACK_ENTITYLIST
+        print(string.format("[changer] entlist pattern miss, using fallback RVA 0x%X", FALLBACK_ENTITYLIST))
+    end
+
+    off.dwLocalPlayerController = sig_rva(cb, "client.dll", "48 8B 05 ?? ?? ?? ?? 41 89 BE", 7)
+    if not off.dwLocalPlayerController then
+        off.dwLocalPlayerController = FALLBACK_LOCALCTRL
+        print(string.format("[changer] localctrl pattern miss, using fallback RVA 0x%X", FALLBACK_LOCALCTRL))
+    end
+
     off.dwNetworkGameClient     = sig_rva(eb, "engine2.dll", "48 89 3D ?? ?? ?? ?? FF 87", 7)
     off.dwNetworkGameClient_signOnState = sig_disp("engine2.dll", "44 8B 81 ?? ?? ?? ?? 48 8D 0D")
     if not off.dwLocalPlayerController or not off.dwEntityList or not off.m_hMyWeapons then
@@ -110,6 +131,7 @@ do
             off.dwNetworkGameClient and string.format("%X", off.dwNetworkGameClient) or "nil"))
     end
 end
+
 
 local function tou32(x) x = x % 0x100000000; if x < 0 then x = x + 0x100000000 end; return x end
 local function mul32(a, b)
