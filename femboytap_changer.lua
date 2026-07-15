@@ -95,6 +95,7 @@ local function sig_disp(mod, pattern)
     local a = mem.FindPattern(mod, pattern); if not a or a == 0 then return nil end
     return r_i32(tonumber(a) + 3)
 end
+-- cs2-dumper 2026-07-10 fallbacks (updated after CS2 patch)
 local FALLBACK_ENTITYLIST = 0x254EE60
 local FALLBACK_LOCALCTRL  = 0x237EBA0
 
@@ -131,7 +132,6 @@ do
             off.dwNetworkGameClient and string.format("%X", off.dwNetworkGameClient) or "nil"))
     end
 end
-
 
 local function tou32(x) x = x % 0x100000000; if x < 0 then x = x + 0x100000000 end; return x end
 local function mul32(a, b)
@@ -353,6 +353,11 @@ local state = {
     resetGlove   = false,
     localModel       = nil,
     appliedLocalModel= nil,
+    -- multiplayer model changer
+    modelAssignments = {}, -- key -> path
+    modelApplied     = {}, -- key -> last path we set
+    modelPersist     = true,
+    modelTargetMode  = 1,  -- 1 self, 2 teammates, 3 enemies, 4 selected
 }
 
 local Config = {}
@@ -557,8 +562,9 @@ end
 
 local function in_game()
     local cl, so = off.dwNetworkGameClient, off.dwNetworkGameClient_signOnState
-    if not cl or not so then return true end
-    local eng = mem.GetModuleBase("engine2.dll"); if not eng then return true end
+    -- missing offsets: do NOT assume in-game (avoids SetModel on bad ptrs in menu)
+    if not cl or not so then return false end
+    local eng = mem.GetModuleBase("engine2.dll"); if not eng then return false end
     local client = r_ptr(eng + cl); if not valid(client) then return false end
     return r_i32(client + so) == 6
 end
@@ -614,8 +620,13 @@ local function models_root()
 end
 
 local SCAN_DIRS = { "characters", "agents", "models" }
+local SKIP_DIRS_ALT = { exg = true, materials = true }
 
-local function scan_into(dir, names, paths)
+local g_modelScanAlt = false
+local g_modelFilter  = ""
+
+local function scan_into(dir, names, paths, opts)
+    opts = opts or {}
     local fd = ffi.new("AW_FIND_DATA")
     local h = ffi.C.FindFirstFileA(dir .. "\\*", fd)
     if h == find_invalid() then return end
@@ -624,18 +635,30 @@ local function scan_into(dir, names, paths)
         if nm ~= "." and nm ~= ".." then
             local full = dir .. "\\" .. nm
             if band(fd.dwFileAttributes, 0x10) ~= 0 then
-                scan_into(full, names, paths)
+                local low = nm:lower()
+                if not (opts.skip_exg_mat and SKIP_DIRS_ALT[low]) then
+                    scan_into(full, names, paths, opts)
+                end
             elseif nm:sub(-7) == ".vmdl_c" then
                 local stem = nm:sub(1, #nm - 7)
-
                 if not stem:lower():match("_arms?$") then
-
                     local p = full:lower():find("\\csgo\\", 1, true)
                     if p then
                         local rel = full:sub(p + 6):gsub("\\", "/")
                         rel = rel:sub(1, #rel - 2)
-                        names[#names + 1] = stem
-                        paths[#paths + 1] = rel
+                        local filt = opts.filter
+                        if filt and filt ~= "" then
+                            local fl = filt:lower()
+                            if not stem:lower():find(fl, 1, true) and not rel:lower():find(fl, 1, true) then
+                                -- skip non-matching name
+                            else
+                                names[#names + 1] = stem
+                                paths[#paths + 1] = rel
+                            end
+                        else
+                            names[#names + 1] = stem
+                            paths[#paths + 1] = rel
+                        end
                     end
                 end
             end
@@ -650,8 +673,17 @@ local function scan_models()
     local names, paths = { "[ OFF ]" }, { "" }
     pcall(function()
         local root = models_root()
-        if root then
-            for _, sub in ipairs(SCAN_DIRS) do scan_into(root .. "\\" .. sub, names, paths) end
+        if not root then return end
+        local opts = {
+            skip_exg_mat = g_modelScanAlt and true or false,
+            filter = (g_modelFilter and g_modelFilter ~= "") and g_modelFilter or nil,
+        }
+        if g_modelScanAlt then
+            scan_into(root .. "\\characters", names, paths, opts)
+        else
+            for _, sub in ipairs(SCAN_DIRS) do
+                scan_into(root .. "\\" .. sub, names, paths, opts)
+            end
         end
     end)
     g_modelNames, g_modelPaths = names, paths
@@ -706,35 +738,220 @@ local function precache_model(path)
     pcall(function() fnptr.precache(g_IRS, cb, "") end)
 end
 
+local function safe_set_model(pawn, path)
+    if not fnptr.set_model then return false end
+    if not valid(pawn) then return false end
+    if type(path) ~= "string" or path == "" or not path:find("%.vmdl") then return false end
+    if (pawn % 8) ~= 0 then return false end
+    if not valid(r_ptr(pawn)) then return false end
+    precache_model(path)
+    local ok = pcall(function() fnptr.set_model(ffi.cast("void*", pawn), path) end)
+    return ok
+end
+
+local function entity_by_index(idx)
+    if not idx or idx <= 0 or idx > 0x7fff then return nil end
+    if not off.dwEntityList then return nil end
+    if not in_game() then return nil end
+    local ok, ent = pcall(function()
+        local base = mem.GetModuleBase(DLL); if not base then return nil end
+        local elist = r_ptr(base + off.dwEntityList); if not valid(elist) then return nil end
+        local chunk = r_ptr(elist + 8 * rshift(idx, 9) + 16); if not valid(chunk) then return nil end
+        local e = r_ptr(chunk + 112 * band(idx, 0x1FF))
+        if valid(e) and valid(r_ptr(e)) then return e end
+        return nil
+    end)
+    if ok and valid(ent) then return ent end
+    return nil
+end
+
+local function player_display_name(pawn)
+    local n
+    pcall(function()
+        local ctrl = pawn:GetPropEntity("m_hController")
+        if ctrl then
+            n = ctrl:GetName()
+            if (not n or n == "") then n = ctrl:GetPropString("m_iszPlayerName") end
+        end
+        if (not n or n == "") then n = pawn:GetName() end
+    end)
+    if n and n ~= "" then return n end
+    local idx = 0
+    pcall(function() idx = pawn:GetIndex() end)
+    return "#" .. tostring(idx)
+end
+
+local function player_key(pawn, is_local)
+    if is_local then return "local" end
+    local sid
+    pcall(function()
+        local ctrl = pawn:GetPropEntity("m_hController")
+        if ctrl then
+            sid = ctrl:GetProp("m_steamID")
+            if not sid or sid == 0 then
+                if ctrl.GetPropInt then sid = ctrl:GetPropInt("m_steamID") end
+            end
+        end
+    end)
+    if sid and tonumber(sid) and tonumber(sid) > 0 then return "s:" .. tostring(sid) end
+    local idx = 0
+    pcall(function() idx = pawn:GetIndex() end)
+    return "i:" .. tostring(idx)
+end
+
+local function collect_alive_players()
+    local out = {}
+    local ok_f, pawns = pcall(entities.FindByClass, "C_CSPlayerPawn")
+    if not ok_f or not pawns then return out end
+
+    local ok_lp, lp = pcall(entities.GetLocalPlayer)
+    if not ok_lp or not lp then
+        ok_lp, lp = pcall(entities.GetLocalPawn)
+    end
+    local lp_idx = -1
+    if ok_lp and lp then pcall(function() lp_idx = lp:GetIndex() end) end
+
+    for _, pawn in pairs(pawns) do
+        local alive, idx, team = false, 0, 0
+        pcall(function() alive = pawn:IsAlive() end)
+        if alive then
+            pcall(function() idx = pawn:GetIndex() end)
+            pcall(function() team = pawn:GetTeamNumber() end)
+            if idx and idx > 0 then
+                local is_local = (idx == lp_idx)
+                out[#out + 1] = {
+                    pawn = pawn,
+                    raw = nil, -- resolve lazily only when applying in-game
+                    idx = idx,
+                    team = team or 0,
+                    is_local = is_local,
+                    name = player_display_name(pawn),
+                    key = player_key(pawn, is_local),
+                }
+            end
+        end
+    end
+    return out
+end
+
+local function model_needs_apply(info, path)
+    if not path or path == "" then return false end
+    if state.modelPersist then
+        local cur
+        pcall(function() cur = info.pawn:GetModelName() end)
+        if type(cur) == "string" and cur == path then return false end
+        return true
+    end
+    return state.modelApplied[info.key] ~= path
+end
+
+local function apply_path_to_player(info, path)
+    if not info or not path or path == "" then return false end
+    if not in_game() then return false end
+    if not model_needs_apply(info, path) then return false end
+    local raw = info.raw
+    if not valid(raw) then
+        raw = entity_by_index(info.idx)
+        info.raw = raw
+    end
+    if not valid(raw) then return false end
+    if safe_set_model(raw, path) then
+        state.modelApplied[info.key] = path
+        if info.is_local then
+            state.appliedLocalModel = path
+            state.overrideActive = true
+        end
+        return true
+    end
+    return false
+end
+
+local function apply_all_model_assignments()
+    if not fnptr.set_model then return end
+    if not in_game() then return end
+    if not next(state.modelAssignments) and not (state.localModel and state.localModel ~= "") then
+        return
+    end
+    local ok, players = pcall(collect_alive_players)
+    if not ok or not players then return end
+    for _, info in ipairs(players) do
+        local path = state.modelAssignments[info.key]
+        if (not path or path == "") and info.is_local then
+            path = state.localModel
+        end
+        if path and path ~= "" then
+            pcall(apply_path_to_player, info, path)
+        end
+    end
+end
+
 local function apply_local_model(pawn, lp)
     if not fnptr.set_model then return end
-
-    if state.origModelPawn ~= pawn then
-        state.origModelPawn     = pawn
-        state.appliedLocalModel = nil
-        state.overrideActive    = false
-        state.origModelName     = nil
-        if lp then pcall(function()
-            local nm = lp:GetModelName()
-            if type(nm) == "string" and nm:find("%.vmdl") then state.origModelName = nm end
-        end) end
-    end
-    local path = state.localModel
+    if not valid(pawn) then return end
+    if not in_game() then return end
+    local path = state.modelAssignments["local"] or state.localModel
     if path and path ~= "" then
-        if state.appliedLocalModel == path then return end
-        precache_model(path)
-        pcall(function() fnptr.set_model(ffi.cast("void*", pawn), path) end)
-        state.appliedLocalModel = path
-        state.overrideActive    = true
+        if not lp then return end
+        local info = { pawn = lp, raw = pawn, key = "local", is_local = true, idx = 0 }
+        pcall(function() info.idx = lp:GetIndex() end)
+        apply_path_to_player(info, path)
     else
         if state.appliedLocalModel == "OFF" then return end
-        if state.overrideActive and state.origModelName then
-            precache_model(state.origModelName)
-            pcall(function() fnptr.set_model(ffi.cast("void*", pawn), state.origModelName) end)
-            state.overrideActive = false
-        end
+        state.modelApplied["local"] = nil
         state.appliedLocalModel = "OFF"
     end
+end
+
+local function assign_models_to_target(mode, selected_key, path)
+    if not in_game() then return 0 end
+    local players = collect_alive_players()
+    local lp_team = 0
+    for _, info in ipairs(players) do
+        if info.is_local then lp_team = info.team; break end
+    end
+    local count = 0
+    for _, info in ipairs(players) do
+        local match = false
+        if mode == 1 then
+            match = info.is_local
+        elseif mode == 2 then
+            match = (not info.is_local) and info.team == lp_team and lp_team > 1
+        elseif mode == 3 then
+            match = info.team ~= lp_team and info.team > 1
+        elseif mode == 4 then
+            match = selected_key and info.key == selected_key
+        end
+        if match then
+            if path and path ~= "" then
+                state.modelAssignments[info.key] = path
+                if info.is_local then state.localModel = path end
+                state.modelApplied[info.key] = nil
+                pcall(apply_path_to_player, info, path)
+            else
+                state.modelAssignments[info.key] = nil
+                state.modelApplied[info.key] = nil
+                if info.is_local then
+                    state.localModel = nil
+                    state.appliedLocalModel = nil
+                end
+            end
+            count = count + 1
+        end
+    end
+    pcall(Config.save)
+    return count
+end
+
+local function clear_model_assignments(mode, selected_key)
+    return assign_models_to_target(mode, selected_key, nil)
+end
+
+local function clear_all_model_assignments()
+    state.modelAssignments = {}
+    state.modelApplied = {}
+    state.localModel = nil
+    state.appliedLocalModel = nil
+    pcall(Config.save)
 end
 
 local function run()
@@ -761,6 +978,7 @@ local function run()
 
     local applied = state.applied
 
+    apply_all_model_assignments()
     apply_local_model(pawn, lp)
 
     if state.resetGlove then
@@ -870,12 +1088,19 @@ function Config.serialize()
     if state.localModel and state.localModel ~= "" then
         lines[#lines + 1] = "L " .. state.localModel
     end
+    lines[#lines + 1] = "P " .. (state.modelPersist and "1" or "0")
+    for key, path in pairs(state.modelAssignments) do
+        if key ~= "local" and type(path) == "string" and path ~= "" then
+            lines[#lines + 1] = "A " .. key .. " " .. path
+        end
+    end
     return table.concat(lines, "\n")
 end
 
 function Config.parse(str)
     if type(str) ~= "string" or not str:find("AWCFG1", 1, true) then return nil end
     local newCfg, kdef, gdef, opts, lmodel = {}, nil, nil, {}, nil
+    local persist, assigns = true, {}
     for line in str:gmatch("[^\r\n]+") do
         local t = line:sub(1, 1)
         if t == "K" then
@@ -900,12 +1125,18 @@ function Config.parse(str)
         elseif t == "L" then
             local v = line:match("^L%s+(.+)$")
             if v and v ~= "" then lmodel = v end
+        elseif t == "P" then
+            local v = line:match("^P%s+(%d)")
+            persist = (v == "1")
+        elseif t == "A" then
+            local k, p = line:match("^A%s+(%S+)%s+(.+)$")
+            if k and p and p ~= "" then assigns[k] = p end
         end
     end
-    return newCfg, kdef, gdef, opts, lmodel
+    return newCfg, kdef, gdef, opts, lmodel, persist, assigns
 end
 
-function Config.applyTable(newCfg, kdef, gdef, opts, lmodel)
+function Config.applyTable(newCfg, kdef, gdef, opts, lmodel, persist, assigns)
     for def, c in pairs(state.cfg) do
         if c.kind == "weapon" and not newCfg[def] then state.pendingReset[def] = true end
     end
@@ -918,14 +1149,21 @@ function Config.applyTable(newCfg, kdef, gdef, opts, lmodel)
     state.localModel = lmodel
     state.appliedLocalModel = nil
     state.applied  = {}
+    state.modelPersist = (persist ~= false)
+    state.modelAssignments = assigns or {}
+    if lmodel and lmodel ~= "" then state.modelAssignments["local"] = lmodel end
+    state.modelApplied = {}
+    g_modelScanAlt = not not state.opts.model_scan_alt
+    g_modelFilter  = type(state.opts.model_filter) == "string" and state.opts.model_filter or ""
+    g_modelNames, g_modelPaths = nil, nil
 end
 
 function Config.save() return file_write(CFG_FILE, Config.serialize()) end
 
 function Config.load()
-    local newCfg, kdef, gdef, opts, lmodel = Config.parse(file_read(CFG_FILE))
+    local newCfg, kdef, gdef, opts, lmodel, persist, assigns = Config.parse(file_read(CFG_FILE))
     if not newCfg then return false end
-    Config.applyTable(newCfg, kdef, gdef, opts, lmodel)
+    Config.applyTable(newCfg, kdef, gdef, opts, lmodel, persist, assigns)
     return true
 end
 
@@ -1003,13 +1241,58 @@ function C.setOpt(k, v)  state.opts[k] = v; Config.save() end
 
 function C.modelList()     return scan_models() end
 function C.refreshModels() return rescan_models() end
+function C.getModelScanAlt() return g_modelScanAlt end
+function C.setModelScanAlt(on)
+    g_modelScanAlt = not not on
+    state.opts.model_scan_alt = g_modelScanAlt
+    Config.save()
+end
+function C.getModelFilter() return g_modelFilter or "" end
+function C.setModelFilter(q)
+    g_modelFilter = tostring(q or "")
+    state.opts.model_filter = g_modelFilter
+    Config.save()
+end
 function C.getLocalModel() return state.localModel end
 function C.setLocalModel(path)
-    if path == nil or path == "" then state.localModel = nil
-    else state.localModel = path end
+    if path == nil or path == "" then
+        state.localModel = nil
+        state.modelAssignments["local"] = nil
+    else
+        state.localModel = path
+        state.modelAssignments["local"] = path
+    end
     state.appliedLocalModel = nil
+    state.modelApplied["local"] = nil
     Config.save()
     return state.localModel
+end
+
+function C.getModelPersist() return state.modelPersist end
+function C.setModelPersist(on)
+    state.modelPersist = not not on
+    state.opts.model_persist = state.modelPersist
+    -- force re-check next tick
+    state.modelApplied = {}
+    state.appliedLocalModel = nil
+    Config.save()
+end
+
+function C.listPlayers()
+    return collect_alive_players()
+end
+
+function C.applyModelTarget(mode, selected_key, path)
+    state.modelTargetMode = mode or 1
+    return assign_models_to_target(mode or 1, selected_key, path)
+end
+
+function C.clearModelTarget(mode, selected_key)
+    return clear_model_assignments(mode or 1, selected_key)
+end
+
+function C.clearAllModels()
+    clear_all_model_assignments()
 end
 
 callbacks.Register("CreateMove", function()
