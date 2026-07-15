@@ -163,7 +163,7 @@ local function subclass_hash(def) return murmur2(tostring(def):lower(), 0x314159
 local DLL = "client.dll"
 -- client.dll 
 local sig = {
-    set_model      = "40 53 48 83 EC ?? 48 8B D9 4C 8B C2 48 8B 0D ?? ?? ?? ?? 48 8D 54 24 40",  -- CBaseModelEntity::SetModel
+    set_model      = "",  -- CBaseModelEntity::SetModel
     update_subclass= "4C 8B DC 53 48 81 EC ?? ?? ?? ?? 48 8B 41",                                 -- CEconItemView subclass refresh
     set_mesh_mask  = "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 48 8D 99 ?? ?? ?? ?? 48 8B 71", -- CSkeletonInstance mesh mask
     regen_skins    = "",            -- regenerate custom skins
