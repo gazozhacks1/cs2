@@ -164,7 +164,7 @@ local DLL = "client.dll"
 -- client.dll 
 local sig = {
     set_model      = "",  -- CBaseModelEntity::SetModel
-    update_subclass= "4C 8B DC 53 48 81 EC ?? ?? ?? ?? 48 8B 41",                                 -- CEconItemView subclass refresh
+    update_subclass= "",                                 -- CEconItemView subclass refresh
     set_mesh_mask  = "", -- CSkeletonInstance mesh mask
     regen_skins    = "",            -- regenerate custom skins
 }
