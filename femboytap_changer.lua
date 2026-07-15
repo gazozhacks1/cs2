@@ -14,6 +14,7 @@ local FIELDS = {
     m_Item                 = "m_Item",
     m_pGameSceneNode       = "m_pGameSceneNode",
     m_modelState           = { "m_modelState", "CSkeletonInstance" },
+    m_MeshGroupMask        = { "m_MeshGroupMask", "CModelState" },
     m_hModel               = { "m_hModel", "CModelState" },
     m_nSubclassID          = "m_nSubclassID",
     m_iTeamNum             = "m_iTeamNum",
@@ -37,6 +38,7 @@ local FIELDS = {
     m_nFallbackSeed        = { "m_nFallbackSeed", "C_EconEntity" },
     m_flFallbackWear       = { "m_flFallbackWear", "C_EconEntity" },
     m_nFallbackStatTrak    = { "m_nFallbackStatTrak", "C_EconEntity" },
+    m_hViewmodelAttachment = { "m_hViewmodelAttachment", "C_EconEntity" },
     m_EconGloves           = { "m_EconGloves", "C_CSPlayerPawn" },
     m_bNeedToReApplyGloves = { "m_bNeedToReApplyGloves", "C_CSPlayerPawn" },
 
@@ -61,6 +63,20 @@ end)
 off.m_szWorldModel = 48
 off.m_modelState = off.m_modelState or 336
 off.m_hModel     = off.m_hModel     or 160
+off.m_MeshGroupMask = off.m_MeshGroupMask or 520
+off.m_hViewmodelAttachment = off.m_hViewmodelAttachment or 5808
+
+-- Compact legacy paint IDs (ByMykel legacy_model=true). Avoid downloading 5MB skins.json on inject.
+local LEGACY_PAINT = {}
+do
+    local csv = [[5,6,8,9,10,11,12,13,14,15,16,17,20,21,34,36,42,43,44,48,51,59,60,62,67,70,71,73,74,75,76,77,78,83,84,90,92,125,154,155,156,158,159,164,165,166,169,171,172,174,177,178,180,181,182,183,184,185,187,188,189,190,191,192,195,200,202,203,204,207,211,212,213,214,215,217,218,219,220,221,222,223,224,226,227,228,230,231,232,235,236,237,238,240,247,248,249,250,251,252,255,256,257,258,259,260,261,262,263,264,265,266,267,268,270,271,272,273,275,277,278,279,280,281,282,283,284,286,287,288,289,290,291,293,295,296,298,299,300,301,302,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318,319,320,321,323,325,326,327,328,329,330,332,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,366,367,368,370,371,372,373,374,379,380,381,382,383,384,385,386,387,388,389,390,391,393,394,395,396,397,398,399,400,401,402,403,404,405,406,407,409,410,411,413,414,422,423,424,425,426,427,428,429,430,431,432,433,434,435,436,438,439,440,441,445,446,447,449,450,451,452,454,455,456,457,458,459,460,462,463,464,465,466,468,469,470,471,474,475,476,477,478,479,480,481,482,483,484,485,486,487,488,489,490,491,492,493,494,495,496,497,498,499,500,501,502,503,504,505,506,507,508,509,510,511,512,514,515,516,517,518,519,520,521,524,525,526,527,528,529,530,532,533,534,535,537,538,539,540,541,542,543,544,546,547,548,549,550,551,552,553,554,555,556,557,558,559,560,561,562,563,564,565,566,567,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587,588,589,590,591,592,593,594,595,596,597,598,599,600,601,602,603,604,605,606,607,608,609,610,611,612,613,614,615,616,620,622,623,624,625,626,627,628,629,631,632,633,634,635,636,637,638,639,640,641,642,643,644,645,646,650,652,653,654,655,656,657,658,660,661,662,663,664,665,666,667,668,669,670,671,672,673,674,675,676,677,678,679,680,681,682,683,684,685,686,687,688,689,690,691,692,693,694,695,696,697,699,700,701,703,704,705,706,707,708,709,711,712,713,714,715,716,717,718,719,720,721,722,723,724,725,727,729,731,732,734,736,737,738,739,740,741,742,743,744,745,746,747,748,749,750,751,754,755,756,757,758,759,760,761,763,764,775,776,777,778,779,780,781,782,783,784,785,786,787,788,789,790,791,792,793,795,797,800,801,802,803,804,805,806,807,808,809,810,811,812,814,815,816,817,818,819,820,821,822,823,829,836,837,838,839,840,841,843,844,845,846,847,848,849,850,851,856,857,858,859,860,862,863,865,867,868,872,880,884,885,886,887,888,889,890,891,892,893,894,895,897,898,899,900,902,903,904,905,906,907,908,909,910,911,913,914,915,916,917,918,919,920,921,922,923,924,925,926,927,928,929,941,942,943,944,945,946,947,948,949,950,951,952,953,954,955,956,957,958,959,960,961,962,963,964,965,966,967,968,969,970,971,972,973,974,975,976,977,978,979,980,981,982,983,984,985,986,987,988,989,990,991,992,993,994,995,996,997,998,999,1000,1001,1003,1004,1005,1006,1007,1008,1009,1010,1011,1012,1013,1014,1015,1016,1018,1019,1021,1023,1024,1027,1028,1029,1030,1031,1032,1033,1034,1035,1036,1037,1038,1039,1040,1041,1042,1043,1044,1045,1046,1047,1048,1049,1050,1052,1053,1058,1060,1061,1063,1064,1067,1070,1072,1073,1074,1075,1076,1077,1080,1082,1084,1087,1088,1089,1090,1091,1092,1093,1095,1096,1097,1098,1099,1100,1101,1102,1103,1104,1105,1106,1107,1108,1109,1110,1111,1112,1113,1114,1115,1116,1117,1118,1119,1120,1121,1122,1123,1125,1126,1127,1128,1129,1130,1131,1132,1133,1134,1135,1136,1137,1138,1140,1141,1142,1143,1144,1145,1146,1147,1148,1149,1150,1151,1152,1153,1154,1155,1156,1157,1158,1220,1221,1222,1223,1224,1225,1226,1227,1228,1229,1230,1231,1232,1233,1234,1235,1236,1237,1238,1239,1240,1241,1242,1243,1244,1245,1246,1247,1248,1249,1250,1251,1252,1253,1254,1255]]
+    local n = 0
+    for id in csv:gmatch("%d+") do
+        LEGACY_PAINT[tonumber(id)] = true
+        n = n + 1
+    end
+    print(string.format("[changer] legacy map: %d paints (embedded)", n))
+end
 
 local function r_u8 (a) return ffi.cast("uint8_t*",  a)[0] end
 local function r_u16(a) return ffi.cast("uint16_t*", a)[0] end
@@ -358,6 +374,7 @@ local state = {
     modelApplied     = {}, -- key -> last path we set
     modelPersist     = true,
     modelTargetMode  = 1,  -- 1 self, 2 teammates, 3 enemies, 4 selected
+    modelCrashFix    = false, -- optional: throttle + safe precache + cache
 }
 
 local Config = {}
@@ -390,6 +407,41 @@ local function refresh_econ(wpn)
     vcall_void_bool(wpn, 110, true)
 end
 
+-- Mesh group: 1 = modern UV, 2 = legacy UV. Wrong mask = crooked/mirrored texture.
+local function weapon_mesh_mask(paint)
+    if paint and LEGACY_PAINT[paint] then return 2 end
+    return 1
+end
+
+-- Cheap sticky write (no engine rebuild). notify=true calls set_mesh_mask once on full apply.
+local function write_mesh_group(ent, mask)
+    if not valid(ent) or not off.m_MeshGroupMask or not off.m_modelState then return end
+    local node = r_ptr(ent + off.m_pGameSceneNode)
+    if not valid(node) then return end
+    pcall(function() w_u64(node + off.m_modelState + off.m_MeshGroupMask, mask) end)
+end
+
+local function apply_mesh_mask(ent, mask, notify)
+    write_mesh_group(ent, mask)
+    if notify and fnptr.set_mesh_mask and valid(ent) then
+        local node = r_ptr(ent + off.m_pGameSceneNode)
+        if valid(node) then
+            pcall(function() fnptr.set_mesh_mask(ffi.cast("void*", node), mask) end)
+        end
+    end
+end
+
+local skin_dbg = {}
+local function dbg_paint(kind, paint, wpn, mask)
+    local key = kind .. ":" .. tostring(paint)
+    if skin_dbg[key] then return end
+    skin_dbg[key] = true
+    local rb = r_i32(wpn + off.m_nFallbackPaintKit)
+    local leg = (paint and LEGACY_PAINT[paint]) and "yes" or "no"
+    print(string.format("[changer] %s paint written=%d readback=%d mask=%s legacy=%s",
+        kind, paint, rb, mask and tostring(mask) or "-", leg))
+end
+
 local function apply_knife_model(wpn)
     if fnptr.set_model then
         local vdata = r_ptr(wpn + off.m_nSubclassID + 8)
@@ -398,10 +450,7 @@ local function apply_knife_model(wpn)
             if s:find("models/") and s:find("%.vmdl") then fnptr.set_model(ffi.cast("void*", wpn), s) end
         end
     end
-    if fnptr.set_mesh_mask then
-        local node = r_ptr(wpn + off.m_pGameSceneNode)
-        if valid(node) then fnptr.set_mesh_mask(ffi.cast("void*", node), 2) end
-    end
+    apply_mesh_mask(wpn, 2, true)
 end
 
 local function set_knife_subclass(wpn, def_target, quality)
@@ -553,6 +602,22 @@ local function handle_to_entity(elist, hnd)
     return nil
 end
 
+-- First-person weapon mesh only (never HudModelArms — prior AV).
+local function apply_viewmodel_mesh(wpn, mask, elist, notify)
+    if not elist or not off.m_hViewmodelAttachment then return end
+    local h = r_u32(wpn + off.m_hViewmodelAttachment)
+    if h == 0 or h == 0xFFFFFFFF then return end
+    local att = handle_to_entity(elist, h)
+    if att then apply_mesh_mask(att, mask, notify) end
+end
+
+local function apply_weapon_meshes(wpn, paint, elist, notify)
+    local mask = weapon_mesh_mask(paint)
+    apply_mesh_mask(wpn, mask, notify)
+    apply_viewmodel_mesh(wpn, mask, elist, notify)
+    return mask
+end
+
 local function pawn_alive(pawn)
 
     local ls = r_u8 (pawn + off.m_lifeState)
@@ -607,6 +672,26 @@ local function model_ffi()
 end
 
 local function find_invalid() return ffi.cast("void*", ffi.cast("intptr_t", -1)) end
+
+local modelClock = (function()
+    for _, fn in ipairs({
+        function() return globals.RealTime() end,
+        function() return globals.CurTime() end,
+        function() return os.clock() end,
+    }) do
+        local ok, v = pcall(fn)
+        if ok and type(v) == "number" then
+            return fn
+        end
+    end
+    return function() return 0 end
+end)()
+
+local function now_s()
+    local ok, v = pcall(modelClock)
+    if ok and type(v) == "number" then return v end
+    return 0
+end
 
 local function models_root()
     model_ffi()
@@ -696,6 +781,8 @@ end
 
 local g_IRS = nil
 local PRECACHE_SIG = "40 53 55 57 48 81 EC 80 00 00 00 48 8B 01 49 8B E8 48 8B FA"
+local g_precache_ok = nil -- nil=unknown, true/false decided
+local g_precached_paths = {}
 local function resolve_model_fns()
     if fnptr.precache and g_IRS and fnptr.cbuf_insert then return true end
     model_ffi()
@@ -724,18 +811,55 @@ local function resolve_model_fns()
             if ins then fnptr.cbuf_insert = ffi.cast("const char*(*)(void*, int, const char*, int, int)", ins) end
         end)
     end
-    return fnptr.precache ~= nil and g_IRS ~= nil and fnptr.cbuf_insert ~= nil
+
+    local ok = (fnptr.precache ~= nil and g_IRS ~= nil and fnptr.cbuf_insert ~= nil)
+    if not ok then
+        g_precache_ok = false
+        return false
+    end
+
+    -- Safety check (Fix C): verify IRS vtable slot points to the same function as our signature.
+    -- Only enabled when crash-fix mode is on.
+    if state.modelCrashFix and g_precache_ok == nil then
+        local decided = false
+        local safe = false
+        pcall(function()
+            local vtbl = ffi.cast("void***", g_IRS)[0]
+            local vt41 = tonumber(ffi.cast("uintptr_t", vtbl[41]))
+            local sigp = tonumber(ffi.cast("uintptr_t", fn.precache))
+            if vt41 and sigp and vt41 == sigp then
+                safe = true
+            else
+                safe = false
+            end
+            decided = true
+        end)
+        if not decided then safe = false end
+        g_precache_ok = safe
+        if not g_precache_ok then
+            print("[changer] precache unsafe (vtable mismatch) -> disabling precache calls")
+        end
+    end
+
+    return true
 end
 
 local function precache_model(path)
     if path == nil or path == "" then return end
     if not resolve_model_fns() then return end
+    if state.modelCrashFix then
+        if g_precached_paths[path] then return end -- Fix D: cache per path
+        if g_precache_ok == false then return end
+    end
     local cb = ffi.new("AW_CBufStr")
     cb.m_nLength = 0
     cb.m_nAllocatedSize = 0xC0000008
     cb.u.p = nil
     pcall(function() fnptr.cbuf_insert(cb, 0, path, -1, 0) end)
     pcall(function() fnptr.precache(g_IRS, cb, "") end)
+    if state.modelCrashFix then
+        g_precached_paths[path] = true
+    end
 end
 
 local function safe_set_model(pawn, path)
@@ -848,6 +972,17 @@ end
 local function apply_path_to_player(info, path)
     if not info or not path or path == "" then return false end
     if not in_game() then return false end
+
+    local t = now_s()
+    if state.modelCrashFix then
+        -- Fix B: cooldown to avoid hammering resourcesystem.dll / SetModel in persist mode
+        state.modelNextTry = state.modelNextTry or {}
+        local nxt = state.modelNextTry[info.key]
+        if nxt and t < nxt then
+            return false
+        end
+    end
+
     if not model_needs_apply(info, path) then return false end
     local raw = info.raw
     if not valid(raw) then
@@ -861,7 +996,15 @@ local function apply_path_to_player(info, path)
             state.appliedLocalModel = path
             state.overrideActive = true
         end
+        if state.modelCrashFix then
+            -- small cooldown even on success to prevent rapid reapply loops
+            state.modelNextTry[info.key] = t + 1.25
+        end
         return true
+    end
+    if state.modelCrashFix then
+        -- backoff on failure (prevents tight crash loops)
+        state.modelNextTry[info.key] = t + 2.5
     end
     return false
 end
@@ -872,6 +1015,14 @@ local function apply_all_model_assignments()
     if not next(state.modelAssignments) and not (state.localModel and state.localModel ~= "") then
         return
     end
+    if state.modelCrashFix then
+        -- Fix B: global throttle (persist shouldn't run every CreateMove)
+        state.modelNextGlobal = state.modelNextGlobal or 0
+        local t = now_s()
+        if t < (state.modelNextGlobal or 0) then return end
+        state.modelNextGlobal = t + 0.25
+    end
+
     local ok, players = pcall(collect_alive_players)
     if not ok or not players then return end
     for _, info in ipairs(players) do
@@ -1006,28 +1157,54 @@ local function run()
                     local def = r_u16(item_ptr(wpn) + off.m_iItemDefinitionIndex)
                     if is_knife(def) then
                         if state.resetKnife and not (kdef and kc) then
-                            restore_knife(wpn, pawn); applied[wpn] = nil; state.resetKnife = false; did = true
+                            restore_knife(wpn, pawn)
+                            applied["knife"] = nil
+                            state.resetKnife = false
+                            did = true
                         elseif kdef and kc then
                             local s = "k|"..kdef.."|"..kc.paint.."|"..kc.wear.."|"..kc.seed.."|"..tostring(kc.stat).."|"..tostring(kc.statval or 0)
-                            if applied[wpn] ~= s then
-                                process_knife(wpn, kdef, kc.paint, kc.wear, kc.seed, kc.stat, kc.statval); applied[wpn]=s; did=true
+                            if applied["knife"] ~= s then
+                                process_knife(wpn, kdef, kc.paint, kc.wear, kc.seed, kc.stat, kc.statval)
+                                apply_viewmodel_mesh(wpn, 2, elist, true)
+                                dbg_paint("knife", kc.paint, wpn, 2)
+                                applied["knife"] = s
+                                did = true
+                            else
+                                -- sticky paint + mesh write only (no set_mesh_mask spam)
+                                write_fallback(wpn, kc.paint, kc.wear, kc.seed, kc.stat, kc.statval)
+                                apply_mesh_mask(wpn, 2, false)
+                                apply_viewmodel_mesh(wpn, 2, elist, false)
                             end
                         end
                     else
+                        local key = "w:" .. def
                         if state.pendingReset[def] then
-                            restore_weapon(wpn); applied[wpn] = nil; state.pendingReset[def] = nil; did = true
+                            restore_weapon(wpn)
+                            applied[key] = nil
+                            state.pendingReset[def] = nil
+                            did = true
                         else
                             local c = state.cfg[def]
                             if c then
                                 if c.paint > 0 then
                                     local s = "w|"..c.paint.."|"..c.wear.."|"..c.seed.."|"..tostring(c.stat).."|"..tostring(c.statval or 0)
-                                    if applied[wpn] ~= s then
-                                        process_weapon(wpn, c.paint, c.wear, c.seed, c.stat, c.statval); applied[wpn]=s; did=true
+                                    local mask = weapon_mesh_mask(c.paint)
+                                    if applied[key] ~= s then
+                                        process_weapon(wpn, c.paint, c.wear, c.seed, c.stat, c.statval)
+                                        apply_weapon_meshes(wpn, c.paint, elist, true)
+                                        dbg_paint("weapon", c.paint, wpn, mask)
+                                        applied[key] = s
+                                        did = true
+                                    else
+                                        write_fallback(wpn, c.paint, c.wear, c.seed, c.stat, c.statval)
+                                        apply_mesh_mask(wpn, mask, false)
+                                        apply_viewmodel_mesh(wpn, mask, elist, false)
                                     end
                                 else
-                                    local s = "w|none"
-                                    if applied[wpn] ~= s then
-                                        restore_weapon(wpn); applied[wpn]=s; did=true
+                                    if applied[key] ~= "w|none" then
+                                        restore_weapon(wpn)
+                                        applied[key] = "w|none"
+                                        did = true
                                     end
                                 end
                             end
@@ -1150,12 +1327,19 @@ function Config.applyTable(newCfg, kdef, gdef, opts, lmodel, persist, assigns)
     state.appliedLocalModel = nil
     state.applied  = {}
     state.modelPersist = (persist ~= false)
+    state.modelCrashFix = not not state.opts.model_crashfix
     state.modelAssignments = assigns or {}
     if lmodel and lmodel ~= "" then state.modelAssignments["local"] = lmodel end
     state.modelApplied = {}
     g_modelScanAlt = not not state.opts.model_scan_alt
     g_modelFilter  = type(state.opts.model_filter) == "string" and state.opts.model_filter or ""
     g_modelNames, g_modelPaths = nil, nil
+
+    -- if crash-fix got toggled via config, reset runtime caches
+    state.modelNextTry = {}
+    state.modelNextGlobal = 0
+    g_precached_paths = {}
+    g_precache_ok = nil
 end
 
 function Config.save() return file_write(CFG_FILE, Config.serialize()) end
@@ -1275,6 +1459,18 @@ function C.setModelPersist(on)
     -- force re-check next tick
     state.modelApplied = {}
     state.appliedLocalModel = nil
+    Config.save()
+end
+
+function C.getModelCrashFix() return not not state.modelCrashFix end
+function C.setModelCrashFix(on)
+    state.modelCrashFix = not not on
+    state.opts.model_crashfix = state.modelCrashFix
+    -- reset throttles/caches so behavior changes immediately
+    state.modelNextTry = {}
+    state.modelNextGlobal = 0
+    g_precached_paths = {}
+    g_precache_ok = nil
     Config.save()
 end
 
