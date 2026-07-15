@@ -1,6 +1,6 @@
 # Local-only reference loader. Prefer Multscript.lua (GitHub fetch).
-local USER    = "cachorropacoca"
-local REPO    = "aw_cs2v6_femboytap"
+local USER    = "gazozhacks1"
+local REPO    = "cs2"
 local VERSION = "latest"
 
 local function ref()
